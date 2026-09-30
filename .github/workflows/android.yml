@@ -10,8 +10,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: '9.1.0' }
       - uses: android-actions/setup-android@v4
-  with:
-    packages: ''
+        with:
+          packages: ''
       - name: Unit tests and debug build
         run: bash gradlew testDebugUnitTest assembleDebug
   api:
