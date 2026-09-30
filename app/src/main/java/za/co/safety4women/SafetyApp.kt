@@ -26,16 +26,35 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
 @Composable fun SafetyApp(vm: SafetyViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     Surface(color = if (state.highContrast) Color.White else Canvas, modifier = Modifier.fillMaxSize()) {
-        when (state.screen) {
-            "onboarding" -> Onboarding(state, vm)
-            "auth" -> Authentication(state, vm)
-            "home" -> Home(state, vm)
-            "settings" -> Settings(state, vm)
-            "journey" -> JourneySetup(vm)
-            "companions" -> Companions(state, vm)
-            "safety" -> SafetyTiers(state, vm)
-            "incident" -> Incident(vm)
-            else -> Timeline(vm)
+        Column(Modifier.fillMaxSize()) {
+            if (state.demoMode) DemoModeBanner(vm)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (state.screen) {
+                    "onboarding" -> Onboarding(state, vm)
+                    "auth" -> Authentication(state, vm)
+                    "home" -> Home(state, vm)
+                    "settings" -> Settings(state, vm)
+                    "journey" -> JourneySetup(vm)
+                    "companions" -> Companions(state, vm)
+                    "safety" -> SafetyTiers(state, vm)
+                    "incident" -> Incident(vm)
+                    else -> Timeline(vm)
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun DemoModeBanner(vm: SafetyViewModel) {
+    Surface(color = Color(0xFFFFF2CC)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Info, null, tint = Color(0xFF755400), modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text("DEMO MODE · SAMPLE DATA", color = Color(0xFF563F00), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                Text("Temporary only · no API or real account", color = Color(0xFF755400), style = MaterialTheme.typography.labelSmall)
+            }
+            TextButton(onClick = vm::signOut) { Text("Exit demo", color = Color(0xFF563F00)) }
         }
     }
 }
@@ -48,6 +67,12 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
         Column(Modifier.fillMaxSize().padding(p).padding(horizontal = 24.dp, vertical = 28.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Icon(Icons.Default.PersonOutline, null, tint = Teal, modifier = Modifier.size(40.dp)); Text(if (registering) "Your account, your control." else "Welcome back.", style = MaterialTheme.typography.headlineSmall, color = Ink, fontWeight = FontWeight.Bold)
             Text("Account requests use the hosted Safety 4 Women service. Passwords are sent over HTTPS and stored as one-way bcrypt hashes.", color = Muted, style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(onClick = vm::enterDemo, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
+                Icon(Icons.Default.Visibility, null, tint = Teal)
+                Spacer(Modifier.width(8.dp))
+                Text("Explore the app in demo mode", color = Teal, fontWeight = FontWeight.SemiBold)
+            }
+            Text("Opens the screens with sample data. No account is created, and changes are temporary.", color = Muted, style = MaterialTheme.typography.bodySmall)
             if (registering) OutlinedTextField(name, { name = it }, label = { Text("Your name") }, singleLine = true, modifier = Modifier.fillMaxWidth(), isError = name.isNotBlank() && name.trim().length < 2)
             OutlinedTextField(email, { email = it }, label = { Text("Email") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Email), singleLine = true, modifier = Modifier.fillMaxWidth(), isError = email.isNotBlank() && !validEmail)
             OutlinedTextField(password, { password = it }, label = { Text("Password") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password), visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth(), supportingText = { if (registering) Text("Use at least 10 characters.") })
@@ -67,7 +92,7 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
 @Composable private fun Settings(state: UiState, vm: SafetyViewModel) = Scaffold(topBar = { AppHeader("Settings") { vm.route("home") } }) { p ->
     Column(Modifier.padding(p).padding(22.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Make the app yours.", style = MaterialTheme.typography.headlineSmall, color = Ink, fontWeight = FontWeight.Bold)
-        Text("Signed in as ${state.accountName}. Settings are saved to your account when the service is available.", color = Muted, style = MaterialTheme.typography.bodyMedium)
+        Text(if (state.demoMode) "Sample profile. Changes stay in this demo session." else "Signed in as ${state.accountName}. Settings are saved to your account when the service is available.", color = Muted, style = MaterialTheme.typography.bodyMedium)
         Text("LANGUAGE", style = MaterialTheme.typography.labelMedium, color = Muted, letterSpacing = 1.sp)
         Row(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(5.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { LanguageChoice("English", state.language == "en") { vm.language("en") }; LanguageChoice("isiZulu", state.language == "zu") { vm.language("zu") } }
         ElevatedCard(shape = RoundedCornerShape(16.dp), colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
@@ -102,11 +127,11 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
         Text(if (state.role == Role.COMPANION) "Your support space" else "Hello, ${state.accountName.ifBlank { "there" }}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Ink)
         Text(if (state.role == Role.COMPANION) "Support someone you trust." else "A little more peace of mind, one step at a time.", style = MaterialTheme.typography.bodyMedium, color = Muted)
         state.notice?.let { Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE7F3F0)), shape = RoundedCornerShape(16.dp)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) { Icon(Icons.Default.Info, null, tint = Teal, modifier = Modifier.size(19.dp)); Spacer(Modifier.width(10.dp)); Text(it, color = Ink, style = MaterialTheme.typography.bodySmall) } } }
-        ElevatedCard(shape = RoundedCornerShape(22.dp), colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(38.dp).background(Color(0xFFE4F5F1), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Map, null, tint = Teal) }; Spacer(Modifier.width(11.dp)); Column { Text(if (state.role == Role.COMPANION) "Shared journeys" else if (state.journey == null) "Your next journey" else "Journey saved", fontWeight = FontWeight.Bold, color = Ink); Text(if (state.role == Role.COMPANION) "Permission-based view" else if (state.journey == null) "Nothing planned yet" else "Saved to your account", color = Muted, style = MaterialTheme.typography.bodySmall) } };
+        ElevatedCard(shape = RoundedCornerShape(22.dp), colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(38.dp).background(Color(0xFFE4F5F1), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Map, null, tint = Teal) }; Spacer(Modifier.width(11.dp)); Column { Text(if (state.role == Role.COMPANION) "Shared journeys" else if (state.journey == null) "Your next journey" else if (state.demoMode) "Demo journey" else "Journey saved", fontWeight = FontWeight.Bold, color = Ink); Text(if (state.role == Role.COMPANION) "Permission-based view" else if (state.journey == null) "Nothing planned yet" else if (state.demoMode) "Sample · this session only" else "Saved to your account", color = Muted, style = MaterialTheme.typography.bodySmall) } };
             if (state.role == Role.COMPANION) {
                 if (state.sharedJourneys.isEmpty()) Text("No journey is currently shared with your account.", color = Muted, style = MaterialTheme.typography.bodyMedium)
                 state.sharedJourneys.forEach { shared -> Text("${shared.destination}\nExpected arrival in ${shared.expectedArrivalMinutes} min${shared.transportDetails?.let { " · $it" } ?: ""}", color = Ink, style = MaterialTheme.typography.bodyMedium) }
-                if (state.sharedJourneys.isNotEmpty()) Text("Journey details are shared through an accepted companion permission. Live tracking and notifications are not enabled.", color = Muted, style = MaterialTheme.typography.labelSmall)
+                if (state.sharedJourneys.isNotEmpty()) Text(if (state.demoMode) "Demo only: this sample journey is not shared by a real person." else "Journey details are shared through an accepted companion permission. Live tracking and notifications are not enabled.", color = Muted, style = MaterialTheme.typography.labelSmall)
             } else if (state.journey != null) {
                 Text("${state.journey.destination}\n${state.journey.etaMinutes} min · ${state.journey.transport}", color = Ink, style = MaterialTheme.typography.bodyMedium)
                 Text("Live tracking and companion alerts are not enabled.", color = Muted, style = MaterialTheme.typography.labelSmall)
@@ -114,14 +139,14 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
         } }
         Text("Your safety tools", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { ActionTile("Check-in & SOS", Icons.Default.Shield, { vm.route("safety") }, Modifier.weight(1f)); ActionTile("Trusted people", Icons.Default.Group, { vm.route("companions") }, Modifier.weight(1f)) }
-        Text("Journey and incident records are saved to your account. No live location, push alerts, or emergency calls are sent by this app.", style = MaterialTheme.typography.bodySmall, color = Muted)
+        Text(if (state.demoMode) "Demo data stays in this session. No one is notified; live location is not enabled." else "Journey and incident records are saved to your account. No live location, push alerts, or emergency calls are sent by this app.", style = MaterialTheme.typography.bodySmall, color = Muted)
     }
 }
 @Composable
 fun ActionTile(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, click: () -> Unit, modifier: Modifier) = ElevatedCard(onClick = click, modifier = modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) { Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) { Icon(icon, null, tint = Teal, modifier = Modifier.size(25.dp)); Text(text, fontWeight = FontWeight.SemiBold, color = Ink, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium) } }
 
 @Composable
-fun JourneySetup(vm: SafetyViewModel) { var destination by remember { mutableStateOf("") }; var minutes by remember { mutableStateOf("30") }; var transport by remember { mutableStateOf("") }; Scaffold(topBar = { AppHeader("Plan a safe journey") { vm.route("home") } }) { p -> Column(Modifier.padding(p).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) { Text("Make a plan before you set off.", style = MaterialTheme.typography.headlineSmall, color = Ink, fontWeight = FontWeight.Bold); Text("Your plan is saved to your account. It does not share live location or send notifications.", style = MaterialTheme.typography.bodyMedium, color = Muted); OutlinedTextField(destination, { destination = it }, label = { Text("Where are you going?") }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, modifier = Modifier.fillMaxWidth(), singleLine = true, isError = destination.isNotBlank() && destination.trim().length < 2); OutlinedTextField(minutes, { minutes = it.filter(Char::isDigit).take(3) }, label = { Text("Expected arrival (minutes)") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), singleLine = true, isError = (minutes.toIntOrNull() ?: 0) !in 1..360); OutlinedTextField(transport, { transport = it }, label = { Text("Transport notes (optional)") }, modifier = Modifier.fillMaxWidth(), supportingText = { Text("Saved with your account journey.") }); Button(onClick = { if (destination.trim().length >= 2 && (minutes.toIntOrNull() ?: 0) in 1..360) vm.startJourney(destination.trim(), minutes.toInt(), transport.ifBlank { "No transport notes" }) }, enabled = destination.trim().length >= 2 && (minutes.toIntOrNull() ?: 0) in 1..360, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Teal)) { Text("Save journey plan") } } } }
+fun JourneySetup(vm: SafetyViewModel) { var destination by remember { mutableStateOf("") }; var minutes by remember { mutableStateOf("30") }; var transport by remember { mutableStateOf("") }; val demoMode = vm.state.collectAsState().value.demoMode; Scaffold(topBar = { AppHeader("Plan a safe journey") { vm.route("home") } }) { p -> Column(Modifier.padding(p).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) { Text("Make a plan before you set off.", style = MaterialTheme.typography.headlineSmall, color = Ink, fontWeight = FontWeight.Bold); Text(if (demoMode) "Demo only: this sample plan stays in memory for this session." else "Your plan is saved to your account. It does not share live location or send notifications.", style = MaterialTheme.typography.bodyMedium, color = Muted); OutlinedTextField(destination, { destination = it }, label = { Text("Where are you going?") }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, modifier = Modifier.fillMaxWidth(), singleLine = true, isError = destination.isNotBlank() && destination.trim().length < 2); OutlinedTextField(minutes, { minutes = it.filter(Char::isDigit).take(3) }, label = { Text("Expected arrival (minutes)") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), singleLine = true, isError = (minutes.toIntOrNull() ?: 0) !in 1..360); OutlinedTextField(transport, { transport = it }, label = { Text("Transport notes (optional)") }, modifier = Modifier.fillMaxWidth(), supportingText = { Text(if (demoMode) "Sample only; not sent to an account." else "Saved with your account journey.") }); Button(onClick = { if (destination.trim().length >= 2 && (minutes.toIntOrNull() ?: 0) in 1..360) vm.startJourney(destination.trim(), minutes.toInt(), transport.ifBlank { "No transport notes" }) }, enabled = destination.trim().length >= 2 && (minutes.toIntOrNull() ?: 0) in 1..360 && !vm.state.value.busy, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Teal)) { if (vm.state.value.busy) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp) else Text(if (demoMode) "Preview journey" else "Save journey plan") } } } }
 
 @Composable
 fun Companions(state: UiState, vm: SafetyViewModel) {
@@ -129,7 +154,8 @@ fun Companions(state: UiState, vm: SafetyViewModel) {
     var allowJourneyShare by remember { mutableStateOf(true) }; var allowCheckInShare by remember { mutableStateOf(true) }
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     Scaffold(topBar = { AppHeader("Trusted people") { vm.route("home") } }) { p -> Column(Modifier.padding(p).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Keep the people you trust close.", style = MaterialTheme.typography.headlineSmall, color = Ink, fontWeight = FontWeight.Bold)
+            Text("Keep the people you trust close.", style = MaterialTheme.typography.headlineSmall, color = Ink, fontWeight = FontWeight.Bold)
+            if (state.demoMode) Text("Demo only: companion links and invitation codes are samples. No real person is connected.", color = Muted, style = MaterialTheme.typography.bodySmall)
         if (state.role == Role.PRIMARY) {
             Text("Companion access requires an explicit invitation and the other person’s acceptance. You can revoke access at any time.", color = Muted, style = MaterialTheme.typography.bodyMedium)
             state.linkedCompanions.forEach { companion ->
@@ -157,7 +183,7 @@ fun Companions(state: UiState, vm: SafetyViewModel) {
             state.linkedCompanions.forEach { person -> Text("Linked to ${person.displayName} (${person.email})", color = Ink) }
         }
         state.notice?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
-        Text("Trusted phone contacts are stored in your account. Inviting a companion creates a separate consent link; no invitation message is sent automatically.", color = Muted, style = MaterialTheme.typography.bodyMedium)
+        Text(if (state.demoMode) "Sample contacts are temporary. SMS opens a draft only; no message is sent by the demo." else "Trusted phone contacts are stored in your account. Inviting a companion creates a separate consent link; no invitation message is sent automatically.", color = Muted, style = MaterialTheme.typography.bodyMedium)
         if (state.contacts.isEmpty()) EmptyState("No trusted people added", "Add someone you may want to contact. Their details stay in this session.") else state.contacts.forEach { c -> ElevatedCard(shape = RoundedCornerShape(18.dp), colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.AccountCircle, null, tint = Teal, modifier = Modifier.size(42.dp)); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(c.name, fontWeight = FontWeight.Bold, color = Ink); Text(c.phone, color = Muted) }; IconButton(onClick = { vm.removeContact(c.id) }) { Icon(Icons.Default.Delete, "Remove", tint = Red) } } } }
         Text("Add a trusted person", style = MaterialTheme.typography.titleMedium, color = Ink, fontWeight = FontWeight.Bold)
         OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -205,4 +231,3 @@ fun Incident(vm: SafetyViewModel) {
 @Composable private fun EmergencyCall(title: String, number: String, dial: String, context: android.content.Context) { Button(onClick = { val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$dial")); context.startActivity(intent) }, modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF44282C)), shape = RoundedCornerShape(15.dp)) { Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) { Text(title, color = Color.White, fontWeight = FontWeight.SemiBold); Text(number, color = Color(0xFFE6D6D8), style = MaterialTheme.typography.bodySmall) }; Icon(Icons.Default.Call, null, tint = Color.White) } }
 @Composable
 fun Timeline(vm: SafetyViewModel) = Scaffold(topBar = { AppHeader("Activity") { vm.route("home") } }) { p -> Column(Modifier.padding(p).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("Your activity", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Ink); Text("Recorded for this session. No location or message delivery is implied.", style = MaterialTheme.typography.bodySmall, color = Muted); if (vm.state.value.events.isEmpty()) EmptyState("Nothing recorded yet", "Journey plans and safety check-ins will appear here.") else vm.state.value.events.reversed().forEach { item -> ElevatedCard(shape = RoundedCornerShape(14.dp), colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) { Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.History, null, tint = Teal); Spacer(Modifier.width(12.dp)); Text(item, color = Ink) } } }; Button(onClick = { vm.route("home") }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Teal)) { Text("Return to home") } } }
-

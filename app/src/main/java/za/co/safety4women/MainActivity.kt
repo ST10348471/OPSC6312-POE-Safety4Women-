@@ -22,11 +22,30 @@ enum class Role { PRIMARY, COMPANION }
 enum class SafetyLevel { CHECK_IN, ALERT, SOS }
 data class Journey(val destination: String, val etaMinutes: Int, val transport: String)
 data class Contact(val id: String, val name: String, val phone: String)
-data class UiState(val role: Role? = null, val language: String = "en", val screen: String = "onboarding", val journey: Journey? = null, val contacts: List<Contact> = emptyList(), val notice: String? = null, val events: List<String> = emptyList(), val accountName: String = "", val accessToken: String? = null, val busy: Boolean = false, val highContrast: Boolean = false, val invitationToken: String? = null, val linkedCompanions: List<CompanionProfile> = emptyList(), val sharedJourneys: List<SharedJourney> = emptyList(), val latestIncidentId: String? = null)
+data class UiState(val role: Role? = null, val language: String = "en", val screen: String = "onboarding", val journey: Journey? = null, val contacts: List<Contact> = emptyList(), val notice: String? = null, val events: List<String> = emptyList(), val accountName: String = "", val accessToken: String? = null, val busy: Boolean = false, val highContrast: Boolean = false, val invitationToken: String? = null, val linkedCompanions: List<CompanionProfile> = emptyList(), val sharedJourneys: List<SharedJourney> = emptyList(), val latestIncidentId: String? = null, val demoMode: Boolean = false)
 
 class SafetyViewModel : ViewModel() {
     private val _state = MutableStateFlow(UiState()); val state = _state.asStateFlow()
     fun select(role: Role) { _state.value = _state.value.copy(role = role, screen = "auth") }
+    fun enterDemo() {
+        val role = _state.value.role ?: Role.PRIMARY
+        val demoPrimary = CompanionProfile("demo-link-primary", "demo-primary", "Amahle Dlamini", "amahle@example.com", true, true)
+        val demoCompanion = CompanionProfile("demo-link-companion", "demo-companion", "Lerato Mokoena", "lerato@example.com", true, true)
+        val demoJourney = SharedJourney("demo-journey", "demo-primary", "Campus to home", 35, "Ride-hailing", "active")
+        _state.value = UiState(
+            role = role,
+            screen = "home",
+            journey = if (role == Role.PRIMARY) Journey("Campus to home", 35, "Ride-hailing") else null,
+            contacts = if (role == Role.PRIMARY) listOf(Contact("demo-contact", "Demo trusted person", "0000000000")) else emptyList(),
+            events = listOf("Demo journey · Campus to home · 35 min", "Demo check-in · sample only"),
+            accountName = if (role == Role.PRIMARY) "Demo Primary" else "Demo Companion",
+            highContrast = false,
+            linkedCompanions = listOf(if (role == Role.PRIMARY) demoCompanion else demoPrimary),
+            sharedJourneys = if (role == Role.COMPANION) listOf(demoJourney) else emptyList(),
+            demoMode = true,
+            notice = "Demo only: sample data is temporary and no account or server record was created."
+        )
+    }
     fun authenticate(name: String, email: String, password: String, register: Boolean) {
         if (_state.value.busy) return
         _state.value = _state.value.copy(busy = true, notice = null)
@@ -57,6 +76,10 @@ class SafetyViewModel : ViewModel() {
         viewModelScope.launch { runCatching { SafetyApi.service.saveSettings("Bearer $token", SettingsPatch(highContrast = enabled)) }.onFailure { _state.value = _state.value.copy(notice = apiMessage(it)) } }
     }
     fun createCompanionInvitation(email: String, allowJourneys: Boolean, allowCheckIns: Boolean) {
+        if (_state.value.demoMode) {
+            _state.value = _state.value.copy(invitationToken = "DEMO-CODE-ONLY-0000000000000000000000000000", notice = "Demo only: this sample code cannot invite a real companion.")
+            return
+        }
         val token = _state.value.accessToken ?: run { _state.value = _state.value.copy(notice = "Sign in to invite a companion."); return }
         _state.value = _state.value.copy(busy = true, notice = null, invitationToken = null)
         viewModelScope.launch {
@@ -66,6 +89,10 @@ class SafetyViewModel : ViewModel() {
         }
     }
     fun acceptCompanionInvitation(invitation: String) {
+        if (_state.value.demoMode) {
+            _state.value = _state.value.copy(notice = "Demo only: invitation acceptance is simulated; no companion account was linked.")
+            return
+        }
         val token = _state.value.accessToken ?: run { _state.value = _state.value.copy(notice = "Sign in with a companion account to accept an invitation."); return }
         _state.value = _state.value.copy(busy = true, notice = null)
         viewModelScope.launch {
@@ -75,6 +102,10 @@ class SafetyViewModel : ViewModel() {
         }
     }
     fun revokeCompanion(linkId: String) {
+        if (_state.value.demoMode) {
+            _state.value = _state.value.copy(linkedCompanions = _state.value.linkedCompanions.filterNot { it.id == linkId }, notice = "Demo only: sample link removed for this session.")
+            return
+        }
         val token = _state.value.accessToken ?: return
         viewModelScope.launch {
             runCatching { SafetyApi.service.revokeCompanion("Bearer $token", linkId) }
@@ -89,6 +120,10 @@ class SafetyViewModel : ViewModel() {
     fun signOut() { _state.value = UiState(screen = "onboarding", language = _state.value.language) }
     fun route(screen: String) { _state.value = _state.value.copy(screen = screen, notice = null) }
     fun startJourney(destination: String, minutes: Int, transport: String) {
+        if (_state.value.demoMode) {
+            _state.value = _state.value.copy(journey = Journey(destination, minutes, transport), screen = "home", notice = "Demo only: journey shown for this session; it was not saved to a server.", events = _state.value.events + "Demo journey · $destination · $minutes min")
+            return
+        }
         val token = _state.value.accessToken ?: run { _state.value = _state.value.copy(notice = "Sign in before saving a journey."); return }
         _state.value = _state.value.copy(busy = true, notice = null)
         viewModelScope.launch {
@@ -99,6 +134,11 @@ class SafetyViewModel : ViewModel() {
         }
     }
     fun recordSafety(level: SafetyLevel) {
+        if (_state.value.demoMode) {
+            val label = level.name.replace('_', ' ')
+            _state.value = _state.value.copy(notice = "Demo only: $label shown for this session. Nobody was notified and nothing was sent.", events = _state.value.events + "Demo $label · sample only")
+            return
+        }
         val token = _state.value.accessToken ?: run { _state.value = _state.value.copy(notice = "Sign in to save this safety record. No one has been notified."); return }
         viewModelScope.launch {
             runCatching { SafetyApi.service.createIncident("Bearer $token", IncidentRequest(journeyId = null, level = level.name)) }
@@ -122,6 +162,10 @@ class SafetyViewModel : ViewModel() {
         } else _state.value = _state.value.copy(screen = "timeline", notice = "No server incident was available to resolve.", events = _state.value.events + "Marked safe · local session")
     }
     fun removeContact(id: String) {
+        if (_state.value.demoMode) {
+            _state.value = _state.value.copy(contacts = _state.value.contacts.filterNot { it.id == id }, notice = "Demo only: sample contact removed for this session.")
+            return
+        }
         val token = _state.value.accessToken ?: return
         viewModelScope.launch {
             runCatching { SafetyApi.service.removeContact("Bearer $token", id) }
@@ -130,6 +174,11 @@ class SafetyViewModel : ViewModel() {
         }
     }
     fun addContact(name: String, phone: String, onSaved: () -> Unit = {}) {
+        if (_state.value.demoMode) {
+            _state.value = _state.value.copy(contacts = _state.value.contacts + Contact("demo-${System.currentTimeMillis()}", name.trim(), phone.trim()), notice = "Demo only: contact added for this session; not saved to an account.")
+            onSaved()
+            return
+        }
         val token = _state.value.accessToken ?: run { _state.value = _state.value.copy(notice = "Sign in to save trusted contacts."); return }
         _state.value = _state.value.copy(busy = true, notice = null)
         viewModelScope.launch {
