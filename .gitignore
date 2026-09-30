@@ -1,0 +1,9 @@
+.gradle/
+.gradle-user-home/
+build/
+app/build/
+local.properties
+server/node_modules/
+server/.env
+*.jks
+google-services.json
