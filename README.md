@@ -1,89 +1,88 @@
-# Safety 4 Women
+# Safety 4 Women — Part 3 project
 
-Safety 4 Women is an Android app concept for personal journeys and trusted companion support. The screens follow the supplied Figma onboarding direction and Part 1 requirements. The project contains a Kotlin/Jetpack Compose app, an Express REST API, a PostgreSQL schema, API tests, and a GitHub Actions workflow.
+Safety 4 Women is a Kotlin/Jetpack Compose Android app for personal journey planning and trusted companion support. The app now uses Firebase Authentication for accounts and Cloud Firestore for account profiles, settings, journeys, incidents, trusted contacts and consent-based companion links.
 
-## Part 2 feature checklist
+## Firebase project status
 
-| Requirement | Current implementation | Remaining work |
-|---|---|---|
-| Sign-in and password protection | Account registration and login use the REST API. The API stores bcrypt hashes and issues 30-minute JWT access tokens. Tokens remain in app memory. | Deploy the API/database, configure the app URL, test password reset and account deletion. Google sign-in is not configured. |
-| Settings | Account language and high-contrast preference endpoints; English/isiZulu selector and sign-out screen. | Only onboarding is translated into isiZulu. High contrast is stored but is not yet applied to every screen. |
-| REST API and database | Express routes, PostgreSQL schema, authenticated user-scoped operations for journeys, incidents, settings, trusted contacts, and companions. | Create the hosted service/database and apply `server/db/schema.sql`. This repository does not include a live server or database. |
-| Professional UI | Compose onboarding, account forms, home, journey planner, companion management, safety tiers, emergency options, settings, and activity screens. | Exercise on the target phone, refine accessibility and layouts, and capture evidence for the assignment. |
-| Three user-defined features | (1) journey planning with saved destination/ETA/transport; (2) invitation code, explicit acceptance, optional journey/check-in permissions, revocation, and companion journey view; (3) Check-in/Alert/SOS records with resolution API and local SMS draft/emergency dialer options. | Safe-arrival reminders, overdue/deviation detection, notification delivery, companion check-in visibility, and companion escalation are not implemented. |
-| Source, README, tests, CI | This is the complete source project. API tests are included. GitHub Actions runs API tests plus Android unit tests and a debug build. | Publish to the student’s GitHub repository and confirm the Actions run there. Android CI has not been run from this environment. |
-| Demonstration video | Suggested script below. | Record on a phone with narration and add the video URL here before submission. |
+- Firebase project: `opsc-5af15` (OPSC).
+- Android application ID: `za.co.safety4women`.
+- Email/Password Authentication is enabled.
+- The default Cloud Firestore database has been created in `africa-south1` (Johannesburg).
+- `app/google-services.json` is present locally and is excluded from Git.
+- The Android Firebase plugin and Auth/Firestore/Storage/Messaging SDKs are declared. Authentication and Firestore app flows are implemented.
+- **Required next setup:** publish the included `firestore.rules` and deploy `firestore.indexes.json`. Until the rules are published, Firestore production mode denies app data reads and writes.
+- The project is on Spark. Cloud Storage for Firebase is not usable on this plan; the profile/blob upload requirement is pending. The Firebase Storage SDK dependency is present but no upload UI/flow is claimed.
+- Push notification delivery is not implemented. The messaging SDK is present only as setup groundwork.
 
-The Part 1 design also lists live location, FCM notifications, offline Room/WorkManager sync, full bilingual translation, and more extensive incident and privacy audit workflows. Those are not claimed as working features in this build. In particular, saving an SOS record does not send an SOS; a message draft is not sent until the user sends it; an emergency dialer shortcut does not place a call automatically.
+## Features
 
-## Android app setup
+- Firebase email/password account registration and login. Firebase Authentication manages password credentials; the app does not store passwords.
+- Primary and companion roles; one-time, email-bound invitation codes with expiry, permission choices, explicit acceptance and revocation.
+- Journey planning with expected arrival and transport details, plus consent-gated companion journey view.
+- Trusted contacts, check-in/alert/SOS incident records, and resolution.
+- Firestore Android offline cache and queued writes; local changes synchronize when the device reconnects. Initial account creation and first-time sign-in still require a network connection.
+- English/isiZulu language selection. Only onboarding is currently translated into isiZulu.
+- South African emergency dialler shortcuts. The app does not call automatically, send SMS automatically or send push notifications.
 
-1. Open this project folder in Android Studio and allow Gradle sync (JDK 21 and Android SDK 36).
-2. Deploy/configure the API as described below before using account features.
-3. Set the hosted HTTPS API URL as a Gradle user property on the development computer. On Windows, add this line to `%USERPROFILE%\.gradle\gradle.properties`:
+## Publish the Firestore rules
 
-   ```properties
-   SAFETY_API_BASE_URL=https://YOUR_API_HOST/
-   ```
-
-   The app intentionally rejects non-HTTPS API URLs. The default build URL is a reserved `.invalid` placeholder; account actions will not work until this is configured.
-4. Sync Gradle again, run the `app` configuration on a phone/emulator, create a primary account and a separate companion account, then try the journeys below.
-
-Passwords must contain at least 10 characters and at most 72 UTF-8 bytes. The app keeps the access token in memory and asks the user to sign in again after the session is lost or expires.
-
-## API setup and deployment
-
-The backend requires Node.js 22+, PostgreSQL, and a random `JWT_SECRET` containing at least 32 bytes.
+The database was created in production mode, which denies mobile client access until secure rules are published. From the project root, deploy the included rules and indexes using the Firebase CLI:
 
 ```powershell
-cd server
-Copy-Item .env.example .env
-# Edit .env with DATABASE_URL and JWT_SECRET. Never commit .env.
-pnpm install --frozen-lockfile
-psql "$env:DATABASE_URL" -f db/schema.sql
-pnpm start
+npm install --global firebase-tools
+firebase login
+firebase --project opsc-5af15 deploy --only firestore:rules,firestore:indexes
 ```
 
-The API listens on port 8080 by default. `GET /health` is a liveness response. For a hosted deployment, create a Node web service and managed PostgreSQL database with your chosen provider, set `DATABASE_URL`, `JWT_SECRET`, and `PORT` as service environment variables, then apply the schema once. Configure `SAFETY_API_BASE_URL` in Android Studio to the service's HTTPS address. Keep all secrets in the hosting provider’s secret settings.
+Alternatively, copy `firestore.rules` into the Firebase Console under **Firestore → Rules**, then publish. The Firebase CLI also deploys the composite indexes defined in `firestore.indexes.json`. Never replace these rules with open/test-mode rules.
 
-### Main API routes
+## Open and run the Android app
 
-| Route | Purpose |
-|---|---|
-| `POST /v1/auth/register`, `POST /v1/auth/login` | Create account and start session |
-| `GET /v1/me`, `GET/PATCH /v1/settings` | Current user and preferences |
-| `GET/POST /v1/journeys`, `PATCH /v1/journeys/:id` | Own journey plans |
-| `GET/POST /v1/incidents`, `PATCH /v1/incidents/:id/resolve` | Safety-event history and resolution |
-| `GET/POST/DELETE /v1/contacts` | Own trusted phone contacts |
-| `POST /v1/companions/invitations`, `POST /v1/companions/accept` | Create/accept an email-bound, expiring companion invitation |
-| `GET/DELETE /v1/companions`, `GET /v1/companions/journeys` | Inspect/revoke consent links and view permitted active journeys |
+1. Open this folder in Android Studio.
+2. Use JDK 21 and install Android SDK 36.
+3. Confirm `app/google-services.json` exists locally, then sync Gradle.
+4. Run the `app` configuration on an Android phone or emulator with Google Play services.
 
-Protected routes use `Authorization: Bearer <accessToken>`. The invitation endpoint returns a one-time code for the primary user to share privately; the app does not send email/SMS. Only the matching companion account can accept. API event creation returns `delivery: "recorded_only"` because push/SMS notification delivery is not configured.
+The Firebase configuration file contains project/app identifiers and is ignored by Git. For GitHub Actions, create an Actions secret named `GOOGLE_SERVICES_JSON` whose value is the full JSON file contents. Do not commit signing keys, service-account keys, or database credentials.
 
-## Tests and GitHub Actions
+The included `server/` folder is the REST/PostgreSQL backend from the earlier project version. The current Android app uses Firebase Auth/Firestore directly, so it does not need a hosted REST API URL to run. The API source and tests remain available separately.
 
-From `server/`, run `pnpm install --frozen-lockfile` and `pnpm test`. The eight API tests cover bcrypt hashing in registration, validation, authentication requirements, user-ID spoofing rejection, journey/incident creation, settings retrieval, malformed JSON, invitation-token hashing, and role-gated invitation acceptance. The GitHub Actions workflow also runs `testDebugUnitTest assembleDebug` for Android. Run the workflow after pushing the source to GitHub and fix any failures before submission.
+## Checks
 
-## Suggested demonstration recording
+Run Android tests and a debug build locally:
 
-Record on a real Android phone with voice-over. Show the app launch, English/isiZulu selector, account registration, companion account registration, invitation creation and acceptance, settings, journey creation and the companion’s permitted view, each safety tier, an emergency dialer option, the server/database records, and a rejected invalid form. State that SMS drafts need a manual send and that live tracking and notification delivery are not enabled. Do not show real people’s contact details or passwords.
+```powershell
+./gradlew testDebugUnitTest assembleDebug
+```
 
-## Assignment mapping and status
+Run the retained REST API tests from `server/`:
 
-| Part 1 item | Evidence in the current build |
-|---|---|
-| Primary/Companion roles | Account role chosen at registration and enforced for companion invite actions |
-| Explicit companion consent | Email-bound invitation code, 72-hour expiry, matching-account acceptance, permission toggles, primary-user revocation |
-| Safe journey | Destination, ETA, transport notes; stored through authenticated API and visible to accepted companions with journey permission |
-| Three safety levels | Check-in, Alert, SOS records; SMS drafts for check-in/help and emergency number dialer options |
-| Incident resolution | Resolution endpoint; “I’m safe” closes the SOS screen. Companion resolution workflow is not implemented. |
-| Settings | Language preference, high-contrast preference, sign-out |
-| Authentication and API | bcrypt password hashing, JWT-protected PostgreSQL operations, input validation and API tests |
+```powershell
+pnpm install --frozen-lockfile
+pnpm test
+```
 
-## Before calling this production-ready
+GitHub Actions runs both checks. For Android CI, configure the `GOOGLE_SERVICES_JSON` repository secret first. A successful emulator/build check does not replace physical-phone testing.
 
-Deploy and exercise the service, run Android CI and device testing, finish the full isiZulu translation and high-contrast behavior, persist trusted contacts in the UI, show API-backed incident history, and implement safe-arrival reminders and actual companion notifications. Review location consent, privacy policy, data deletion/export, retention, security, and South African emergency contact details before handling real safety data. This assignment build is not a substitute for emergency services.
+## Remaining Part 3 work
 
-## Use of AI
+- Firebase Cloud Storage blob upload. Firebase now requires the Blaze pay-as-you-go plan for Storage; this project remains on Spark, so uploads are blocked until the account owner chooses a billing plan or the lecturer accepts a different blob-storage service.
+- FCM token registration, secure server-side notification delivery and notification handling.
+- Full isiZulu translation, account deletion/export and privacy/retention controls.
+- Test Firebase rules and all flows on a physical phone; run Android CI after dependencies can be downloaded.
+- Final app screenshots, store listing/privacy materials, signed Android App Bundle, Play Console evidence and the required narrated phone demonstration video.
 
-If AI assistance is used in the submission, follow the course’s disclosure rules. Cite the tools and describe which code, debugging, or documentation tasks were assisted; do not claim unverified requirements or test results.
+For safety, the app clearly describes local drafts and user-confirmed dialler actions; no emergency contact or companion receives an alert from a saved incident. Do not use an unverified build for real safety-critical use.
+
+## Release notes — 1.0.0 Part 3 development build
+
+- Registered Android app `za.co.safety4women` with Firebase project `opsc-5af15`.
+- Added Firebase Authentication and Firestore for account and app data.
+- Added consent-scoped Firestore rules and indexes for user records and companion links.
+- Added Firestore-backed journeys, incidents, settings, contacts and companion consent flows with optimistic offline writes.
+- Retained the existing Express/PostgreSQL source and its CI tests, while removing the app's dependency on a separately hosted API.
+- Known release blockers are listed above; this is not a signed or Play Store-ready release.
+
+## AI assistance disclosure
+
+Complete this section according to course policy. Identify any AI tools used and describe the specific coding, debugging or documentation work they assisted with. Do not claim unverified tests or features.

@@ -1,0 +1,151 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function hasActiveLink(primaryUid, companionUid) {
+      return exists(/databases/$(database)/documents/companionLinks/$(primaryUid + '_' + companionUid))
+        && get(/databases/$(database)/documents/companionLinks/$(primaryUid + '_' + companionUid)).data.status == 'ACTIVE';
+    }
+
+    function isLinkedProfile(userId) {
+      return signedIn() && (
+        hasActiveLink(userId, request.auth.uid)
+        || hasActiveLink(request.auth.uid, userId)
+      );
+    }
+
+    function canReadJourneys(primaryUid) {
+      return owns(primaryUid)
+        || (signedIn()
+          && hasActiveLink(primaryUid, request.auth.uid)
+          && get(/databases/$(database)/documents/companionLinks/$(primaryUid + '_' + request.auth.uid)).data.allowJourneys == true);
+    }
+
+    function canReadCheckIns(primaryUid) {
+      return owns(primaryUid)
+        || (signedIn()
+          && hasActiveLink(primaryUid, request.auth.uid)
+          && get(/databases/$(database)/documents/companionLinks/$(primaryUid + '_' + request.auth.uid)).data.allowCheckIns == true);
+    }
+
+    function validProfile(data, userId) {
+      return data.uid == userId
+        && data.email is string
+        && data.displayName is string
+        && data.role in ['PRIMARY', 'COMPANION'];
+    }
+
+    match /users/{userId} {
+      allow create: if owns(userId) && validProfile(request.resource.data, userId);
+      allow get: if owns(userId) || isLinkedProfile(userId);
+      allow list: if false;
+      allow update: if owns(userId)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.email == resource.data.email;
+      allow delete: if false;
+
+      match /contacts/{contactId} {
+        allow read, create, update, delete: if owns(userId);
+      }
+
+      match /journeys/{journeyId} {
+        allow read: if canReadJourneys(userId);
+        allow create: if owns(userId)
+          && request.resource.data.ownerUid == userId
+          && request.resource.data.destination is string
+          && request.resource.data.expectedArrivalMinutes is int
+          && request.resource.data.expectedArrivalMinutes > 0
+          && request.resource.data.expectedArrivalMinutes <= 360;
+        allow update, delete: if owns(userId)
+          && resource.data.ownerUid == userId
+          && request.resource.data.ownerUid == userId;
+      }
+
+      match /incidents/{incidentId} {
+        allow read: if canReadCheckIns(userId);
+        allow create: if owns(userId)
+          && request.resource.data.ownerUid == userId
+          && request.resource.data.level in ['CHECK_IN', 'ALERT', 'SOS'];
+        allow update: if owns(userId)
+          && resource.data.ownerUid == userId
+          && request.resource.data.ownerUid == userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt'])
+          && request.resource.data.status == 'RESOLVED';
+        allow delete: if false;
+      }
+    }
+
+    match /companionInvitations/{code} {
+      allow create: if signedIn()
+        && request.resource.data.inviterUid == request.auth.uid
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'PRIMARY'
+        && request.resource.data.inviteeEmail is string
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.allowJourneys is bool
+        && request.resource.data.allowCheckIns is bool
+        && (request.resource.data.allowJourneys || request.resource.data.allowCheckIns)
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time;
+
+      allow get: if signedIn()
+        && (resource.data.inviterUid == request.auth.uid
+          || resource.data.inviteeEmail == request.auth.token.email);
+      allow list: if false;
+
+      allow update: if signedIn() && (
+        (resource.data.inviterUid == request.auth.uid
+          && resource.data.status == 'PENDING'
+          && request.resource.data.status == 'REVOKED'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']))
+        || (resource.data.status == 'PENDING'
+          && resource.data.expiresAt > request.time
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'COMPANION'
+          && resource.data.inviteeEmail == request.auth.token.email
+          && request.resource.data.status == 'ACCEPTED'
+          && request.resource.data.acceptedByUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedByUid', 'acceptedAt']))
+      );
+      allow delete: if false;
+    }
+
+    match /companionLinks/{linkId} {
+      allow get, list: if signedIn()
+        && (resource.data.primaryUid == request.auth.uid || resource.data.companionUid == request.auth.uid);
+
+      allow create: if signedIn()
+        && request.resource.data.companionUid == request.auth.uid
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'COMPANION'
+        && request.resource.data.status == 'ACTIVE'
+        && request.resource.data.primaryUid is string
+        && request.resource.data.allowJourneys is bool
+        && request.resource.data.allowCheckIns is bool
+        && request.resource.data.invitationCode is string
+        && getAfter(/databases/$(database)/documents/companionInvitations/$(request.resource.data.invitationCode)).data.status == 'ACCEPTED'
+        && getAfter(/databases/$(database)/documents/companionInvitations/$(request.resource.data.invitationCode)).data.inviterUid == request.resource.data.primaryUid
+        && getAfter(/databases/$(database)/documents/companionInvitations/$(request.resource.data.invitationCode)).data.acceptedByUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/companionInvitations/$(request.resource.data.invitationCode)).data.allowJourneys == request.resource.data.allowJourneys
+        && getAfter(/databases/$(database)/documents/companionInvitations/$(request.resource.data.invitationCode)).data.allowCheckIns == request.resource.data.allowCheckIns;
+
+      allow update: if signedIn()
+        && resource.data.primaryUid == request.auth.uid
+        && request.resource.data.primaryUid == resource.data.primaryUid
+        && request.resource.data.companionUid == resource.data.companionUid
+        && request.resource.data.status == 'REVOKED'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'revokedAt']);
+      allow delete: if false;
+    }
+
+    // Anything not explicitly allowed above is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
