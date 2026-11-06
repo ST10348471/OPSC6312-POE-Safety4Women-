@@ -56,6 +56,10 @@ A signed production artifact, Play Console upload, physical-device acceptance te
 
 For the demonstration, use a physical Android phone; show registration/login and Google SSO, settings, invalid-input handling, offline write followed by reconnection/sync, a consented companion notification after the API is deployed, the hosted API health endpoint and PostgreSQL data, and both languages. Explain clearly that the app does not share live location or automatically place calls/SMS. Include professional narration and add the video link, screenshots, release notes, GitHub Actions result, and final `final PoE` tag to the submission evidence. Never use real sensitive contact details in screenshots.
 
+### Narrated demonstration
+
+[Watch the Safety 4 Women demonstration on YouTube](https://youtu.be/4SYv04AIcY4?si=Wyn8TQjvigiQenjd)
+
 ## Feedback and references
 
 Review the isiZulu safety wording with a fluent speaker. Firebase, Android Credential Manager, and FCM implementation details follow their official Android/Firebase documentation. Keep comments near security-sensitive rules and server-side token validation when extending the app.
