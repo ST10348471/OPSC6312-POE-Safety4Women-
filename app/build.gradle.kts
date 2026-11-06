@@ -11,11 +11,34 @@ android {
         applicationId = "za.co.safety4women"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        val apiUrl = providers.gradleProperty("safetyApiBaseUrl").orElse("").get()
+        buildConfigField("String", "SAFETY_API_BASE_URL", "\"${apiUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
-    buildFeatures { compose = true }
+    signingConfigs {
+        create("release") {
+            val storePath = providers.environmentVariable("SAFETY4WOMEN_KEYSTORE").orNull
+            val storePass = providers.environmentVariable("SAFETY4WOMEN_KEYSTORE_PASSWORD").orNull
+            val keyAliasValue = providers.environmentVariable("SAFETY4WOMEN_KEY_ALIAS").orNull
+            val keyPass = providers.environmentVariable("SAFETY4WOMEN_KEY_PASSWORD").orNull
+            if (!storePath.isNullOrBlank() && !storePass.isNullOrBlank() && !keyAliasValue.isNullOrBlank() && !keyPass.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = storePass
+                keyAlias = keyAliasValue
+                keyPassword = keyPass
+            }
+        }
+    }
+    buildFeatures { compose = true; buildConfig = true }
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            val hasReleaseKey = listOf("SAFETY4WOMEN_KEYSTORE", "SAFETY4WOMEN_KEYSTORE_PASSWORD", "SAFETY4WOMEN_KEY_ALIAS", "SAFETY4WOMEN_KEY_PASSWORD").all { !providers.environmentVariable(it).orNull.isNullOrBlank() }
+            if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
+        }
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
@@ -26,6 +49,9 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-storage")
     implementation("com.google.firebase:firebase-messaging")
+    implementation("androidx.credentials:credentials:1.6.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
     val composeBom = platform("androidx.compose:compose-bom:2026.04.01")

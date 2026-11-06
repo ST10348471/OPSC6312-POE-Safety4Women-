@@ -56,6 +56,14 @@ service cloud.firestore {
         allow read, create, update, delete: if owns(userId);
       }
 
+      match /deviceTokens/{tokenId} {
+        allow read, delete: if owns(userId);
+        allow create, update: if owns(userId)
+          && request.resource.data.token is string
+          && request.resource.data.token.size() > 20
+          && request.resource.data.platform == 'android';
+      }
+
       match /journeys/{journeyId} {
         allow read: if canReadJourneys(userId);
         allow create: if owns(userId)

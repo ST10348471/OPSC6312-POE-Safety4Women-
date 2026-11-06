@@ -26,12 +26,13 @@ const settingsInput = z.object({ language: z.enum(["en", "zu"]).optional(), high
 const contactInput = z.object({ name: z.string().trim().min(2).max(80), phone: z.string().trim().min(7).max(32), allowCheckIns: z.boolean().default(true), allowHelpMessages: z.boolean().default(true) }).strict();
 const inviteInput = z.object({ email: z.string().trim().email().max(254), allowJourneys: z.boolean().default(true), allowCheckIns: z.boolean().default(true) }).strict();
 const acceptInviteInput = z.object({ invitationToken: z.string().min(32).max(256) }).strict();
+const companionAlertInput = z.object({ incidentId: z.string().uuid(), level: z.enum(["CHECK_IN", "ALERT", "SOS"]) }).strict();
 
 function validationFailure(res, error) {
   return res.status(400).json({ error: "Invalid request", details: error.flatten().fieldErrors });
 }
 
-export function createApp({ pool, jwtSecret, allowedOrigins = [] }) {
+export function createApp({ pool, jwtSecret, allowedOrigins = [], firebasePush = null }) {
   if (!pool?.query) throw new Error("A database pool is required");
   if (typeof jwtSecret !== "string" || Buffer.byteLength(jwtSecret, "utf8") < 32) throw new Error("JWT_SECRET must contain at least 32 bytes");
 
@@ -60,7 +61,29 @@ export function createApp({ pool, jwtSecret, allowedOrigins = [] }) {
     }
   };
 
+  const firebaseAuthenticated = async (req, res, next) => {
+    if (!firebasePush) return res.status(503).json({ error: "Push delivery is not configured on this server" });
+    const [scheme, token, extra] = (req.get("authorization") ?? "").split(" ");
+    if (scheme !== "Bearer" || !token || extra) return res.status(401).json({ error: "Firebase sign-in required" });
+    try { req.firebaseUser = await firebasePush.verifyIdToken(token); return next(); }
+    catch { return res.status(401).json({ error: "Firebase session is invalid or expired" }); }
+  };
+
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
+  const notificationAttempts = new Map();
+  app.post("/v1/notifications/companion-alert", firebaseAuthenticated, async (req, res, next) => {
+    const parsed = companionAlertInput.safeParse(req.body);
+    if (!parsed.success) return validationFailure(res, parsed.error);
+    const now = Date.now();
+    const attempts = (notificationAttempts.get(req.firebaseUser.uid) ?? []).filter((time) => now - time < 60_000);
+    if (attempts.length >= 5) return res.status(429).json({ error: "Please wait before sending another safety notification" });
+    notificationAttempts.set(req.firebaseUser.uid, [...attempts, now]);
+    try {
+      const delivery = await firebasePush.sendCompanionAlert(req.firebaseUser.uid, parsed.data.level, parsed.data.incidentId);
+      return res.json(delivery);
+    } catch (error) { return next(error); }
+  });
 
   app.post("/v1/auth/register", async (req, res, next) => {
     const parsed = registerInput.safeParse(req.body);

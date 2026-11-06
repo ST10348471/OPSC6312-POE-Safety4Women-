@@ -20,13 +20,25 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 
 private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); private val Red = Color(0xFFB42318); private val Ink = Color(0xFF18302E); private val Muted = Color(0xFF647875); private val Canvas = Color(0xFFF2FAF8)
 
 @Composable fun SafetyApp(vm: SafetyViewModel = viewModel()) {
     val state by vm.state.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(vm) { vm.restoreSession() }
-    Surface(color = if (state.highContrast) Color.White else Canvas, modifier = Modifier.fillMaxSize()) {
+    LaunchedEffect(state.firebaseUid) {
+        if (state.firebaseUid != null && android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            !context.getSharedPreferences("safety4women", android.content.Context.MODE_PRIVATE).getBoolean("notifications_prompted", false)) {
+            context.getSharedPreferences("safety4women", android.content.Context.MODE_PRIVATE).edit().putBoolean("notifications_prompted", true).apply()
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    ProvideUiLanguage(state.language) {
+      Surface(color = if (state.highContrast) Color.White else Canvas, modifier = Modifier.fillMaxSize()) {
         when (state.screen) {
             "onboarding" -> Onboarding(state, vm)
             "auth" -> Authentication(state, vm)
@@ -38,11 +50,15 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
             "incident" -> Incident(vm)
             else -> Timeline(vm)
         }
+      }
     }
 }
 
 @Composable private fun Authentication(state: UiState, vm: SafetyViewModel) {
     var name by remember { mutableStateOf("") }; var email by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }; var registering by remember { mutableStateOf(true) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var googleBusy by remember { mutableStateOf(false) }
     val validEmail = android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
     val valid = validEmail && password.length >= (if (registering) 10 else 1) && (!registering || name.trim().length >= 2)
     Scaffold(topBar = { AppHeader(if (registering) "Create your account" else "Sign in") { vm.route("onboarding") } }) { p ->
@@ -54,6 +70,29 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
             OutlinedTextField(password, { password = it }, label = { Text("Password") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password), visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth(), supportingText = { if (registering) Text("Use at least 10 characters.") })
             state.notice?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Button(onClick = { vm.authenticate(name, email, password, registering) }, enabled = valid && !state.busy, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Teal)) { if (state.busy) CircularProgressIndicator(Modifier.size(21.dp), color = Color.White, strokeWidth = 2.dp) else Text(if (registering) "Create account" else "Sign in", fontWeight = FontWeight.SemiBold) }
+            OutlinedButton(onClick = {
+                val webClientResource = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+                if (webClientResource == 0) {
+                    vm.setNotice("Google sign-in needs a Firebase Web client ID. Enable Google in Firebase Authentication and download the updated google-services.json.")
+                } else {
+                    val webClientId = context.getString(webClientResource)
+                    googleBusy = true
+                    scope.launch {
+                        try {
+                            val option = com.google.android.libraries.identity.googleid.GetGoogleIdOption.Builder()
+                                .setFilterByAuthorizedAccounts(false).setServerClientId(webClientId).setAutoSelectEnabled(false).build()
+                            val request = androidx.credentials.GetCredentialRequest.Builder().addCredentialOption(option).build()
+                            val result = androidx.credentials.CredentialManager.create(context).getCredential(context, request)
+                            val credential = com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.createFrom(result.credential.data)
+                            vm.authenticateGoogle(credential.idToken)
+                        } catch (error: Exception) {
+                            vm.setNotice("Google sign-in could not complete. Check that Google Authentication is enabled and the Android SHA fingerprints are registered.")
+                        } finally { googleBusy = false }
+                    }
+                }
+            }, enabled = !state.busy && !googleBusy, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
+                if (googleBusy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Continue with Google")
+            }
             TextButton(onClick = { registering = !registering }) { Text(if (registering) "Already have an account? Sign in" else "New here? Create an account", color = Teal) }
             Text("Your password is never saved on this device. Firebase keeps your signed-in session until you sign out.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
@@ -77,7 +116,7 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
                 Switch(checked = state.highContrast, onCheckedChange = vm::toggleContrast)
             }
         }
-        Text("The isiZulu language option currently translates onboarding only; remaining screens are English.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        Text("IsiZulu translations cover the app interface. Please report any wording that is unclear.", color = Muted, style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = vm::signOut, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) { Text("Sign out", color = Teal) }
     }
 }
@@ -92,7 +131,6 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
     Spacer(Modifier.height(12.dp)); RoleCard(if (state.language == "zu") "Ngifuna ukuphepha" else "I want to stay safe", if (state.language == "zu") "Hlela uhambo futhi usebenzise amathuluzi okuphepha" else "Plan a journey and access personal safety tools", Icons.Default.Person, { vm.select(Role.PRIMARY) })
     Spacer(Modifier.height(12.dp)); RoleCard(if (state.language == "zu") "Ngifuna ukuvikela omunye" else "I want to support someone", if (state.language == "zu") "Buka uhambo lomuntu omethembayo" else "Support someone you trust on their journey", Icons.Default.Favorite, { vm.select(Role.COMPANION) })
     Spacer(Modifier.height(24.dp)); Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Lock, null, tint = Teal, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(7.dp)); Text("Your choices stay in your control", color = Muted, style = MaterialTheme.typography.bodySmall) }
-    if (state.language == "zu") Text("Le demo ihumusha isikrini sokuqala kuphela; ezinye izikrini ziseNgisini.", color = Muted, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
     Spacer(Modifier.height(8.dp)); Text("Built for South Africa  ·  🇿🇦", color = Muted, style = MaterialTheme.typography.labelSmall)
 }
 @Composable private fun RowScope.LanguageChoice(label: String, selected: Boolean, click: () -> Unit) { Surface(onClick = click, modifier = Modifier.weight(1f).height(44.dp), color = if (selected) Teal else Color.Transparent, shape = RoundedCornerShape(12.dp)) { Box(contentAlignment = Alignment.Center) { Text(label, color = if (selected) Color.White else Ink, fontWeight = FontWeight.SemiBold) } } }
@@ -107,7 +145,7 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
             if (state.role == Role.COMPANION) {
                 if (state.sharedJourneys.isEmpty()) Text("No journey is currently shared with your account.", color = Muted, style = MaterialTheme.typography.bodyMedium)
                 state.sharedJourneys.forEach { shared -> Text("${shared.destination}\nExpected arrival in ${shared.expectedArrivalMinutes} min${shared.transportDetails?.let { " · $it" } ?: ""}", color = Ink, style = MaterialTheme.typography.bodyMedium) }
-                if (state.sharedJourneys.isNotEmpty()) Text("Journey details are shared through an accepted companion permission. Live tracking and notifications are not enabled.", color = Muted, style = MaterialTheme.typography.labelSmall)
+                if (state.sharedJourneys.isNotEmpty()) Text("Journey details are shared through accepted companion permission. No live location is shared.", color = Muted, style = MaterialTheme.typography.labelSmall)
             } else if (state.journey != null) {
                 Text("${state.journey.destination}\n${state.journey.etaMinutes} min · ${state.journey.transport}", color = Ink, style = MaterialTheme.typography.bodyMedium)
                 Text("Live tracking and companion alerts are not enabled.", color = Muted, style = MaterialTheme.typography.labelSmall)
@@ -115,7 +153,7 @@ private val Navy = Color(0xFF123331); private val Teal = Color(0xFF087E78); priv
         } }
         Text("Your safety tools", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { ActionTile("Check-in & SOS", Icons.Default.Shield, { vm.route("safety") }, Modifier.weight(1f)); ActionTile("Trusted people", Icons.Default.Group, { vm.route("companions") }, Modifier.weight(1f)) }
-        Text("Journey and incident records are saved to your account. No live location, push alerts, or emergency calls are sent by this app.", style = MaterialTheme.typography.bodySmall, color = Muted)
+        Text("Journey and incident records are saved to your account. Check-ins and alerts can notify a consenting companion when push delivery is configured. No live location is shared, and the app never calls emergency services automatically.", style = MaterialTheme.typography.bodySmall, color = Muted)
     }
 }
 @Composable
@@ -175,7 +213,7 @@ fun SafetyTiers(state: UiState, vm: SafetyViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     Scaffold(topBar = { AppHeader("Safety tools") { vm.route("home") } }) { p -> Column(Modifier.padding(p).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Choose what you need right now.", style = MaterialTheme.typography.headlineSmall, color = Ink, fontWeight = FontWeight.Bold)
-        Text("Check-ins and alerts open a message draft for someone you choose. Nothing is sent until you review and send it in your messaging app.", color = Muted, style = MaterialTheme.typography.bodyMedium)
+        Text("Recording a check-in or alert can send a push notification to a consenting companion when delivery is configured. A text message is only drafted; review and send it yourself.", color = Muted, style = MaterialTheme.typography.bodyMedium)
         SafetyButton("Check in", "Record a check-in and optionally draft a message.", Color(0xFF16794A)) { vm.recordSafety(SafetyLevel.CHECK_IN); if (state.contacts.any { it.phone.isNotBlank() }) messageLevel = SafetyLevel.CHECK_IN else showNoContacts = true }
         SafetyButton("Ask for help", "Record an alert and optionally draft a help message.", Color(0xFFB54708)) { vm.recordSafety(SafetyLevel.ALERT); if (state.contacts.any { it.phone.isNotBlank() }) messageLevel = SafetyLevel.ALERT else showNoContacts = true }
         SafetyButton("SOS", "Open emergency call options.", Red) { vm.safety(SafetyLevel.SOS) }

@@ -4,25 +4,64 @@
       "collectionGroup": "companionLinks",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "primaryUid", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        {
+          "fieldPath": "primaryUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "companionLinks",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "companionUid", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        {
+          "fieldPath": "companionUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "companionLinks",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "companionUid", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "allowJourneys", "order": "ASCENDING" }
+        {
+          "fieldPath": "companionUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "allowJourneys",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "companionLinks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "primaryUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "allowCheckIns",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],

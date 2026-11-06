@@ -1,88 +1,61 @@
-# Safety 4 Women — Part 3 project
+# Safety 4 Women — Part 3
 
-Safety 4 Women is a Kotlin/Jetpack Compose Android app for personal journey planning and trusted companion support. The app now uses Firebase Authentication for accounts and Cloud Firestore for account profiles, settings, journeys, incidents, trusted contacts and consent-based companion links.
+Safety 4 Women is a Kotlin/Jetpack Compose Android safety-planning app for South African users. This repository contains the complete Android source, Firebase configuration templates/rules, a Node.js/PostgreSQL REST API, tests, CI workflow, and Play release preparation material.
 
-## Firebase project status
+## Implemented in the app
 
-- Firebase project: `opsc-5af15` (OPSC).
-- Android application ID: `za.co.safety4women`.
-- Email/Password Authentication is enabled.
-- The default Cloud Firestore database has been created in `africa-south1` (Johannesburg).
-- `app/google-services.json` is present locally and is excluded from Git.
-- The Android Firebase plugin and Auth/Firestore/Storage/Messaging SDKs are declared. Authentication and Firestore app flows are implemented.
-- **Required next setup:** publish the included `firestore.rules` and deploy `firestore.indexes.json`. Until the rules are published, Firestore production mode denies app data reads and writes.
-- The project is on Spark. Cloud Storage for Firebase is not usable on this plan; the profile/blob upload requirement is pending. The Firebase Storage SDK dependency is present but no upload UI/flow is claimed.
-- Push notification delivery is not implemented. The messaging SDK is present only as setup groundwork.
+- Firebase Authentication with email/password registration and sign-in. Passwords are handled by Firebase Authentication and are not stored by the app.
+- Google single sign-on through Android Credential Manager and Firebase Auth. Enable the Google provider, register the app's SHA-1 and SHA-256 fingerprints, and download a refreshed `google-services.json` containing a Web OAuth client ID before testing this path.
+- Firestore profile, journey, safety incident, contact, and consent-based companion data. Firestore's Android offline persistence queues writes and syncs them when connectivity returns.
+- English and isiZulu interface copy, including settings, safety flow, validation, emergency explanations, and status messages. The translation is a project draft and must be reviewed by a fluent isiZulu speaker before publication.
+- South African emergency dialler shortcuts, trusted contacts, journey planning, companion invitations/acceptance/revocation, and activity history. Calls and SMS are not placed or sent automatically.
+- FCM token registration and Android notification display. Recording a check-in/help alert/SOS can request a push to an accepted companion only when the hosted API is configured and the companion granted the check-in/alert permission. SMS remains a user-reviewed draft.
+- A private, server-side push sender. The Android client sends its Firebase ID token to `/v1/notifications/companion-alert`; the service validates the token, checks Firestore consent, and sends a minimal FCM alert. Firebase service-account credentials belong only in the host's private environment settings.
+- Release version `1.1.0` / version code `2`; release signing is enabled only when all four `SAFETY4WOMEN_*` signing environment variables are provided.
 
-## Features
+## Firebase setup and plan constraints
 
-- Firebase email/password account registration and login. Firebase Authentication manages password credentials; the app does not store passwords.
-- Primary and companion roles; one-time, email-bound invitation codes with expiry, permission choices, explicit acceptance and revocation.
-- Journey planning with expected arrival and transport details, plus consent-gated companion journey view.
-- Trusted contacts, check-in/alert/SOS incident records, and resolution.
-- Firestore Android offline cache and queued writes; local changes synchronize when the device reconnects. Initial account creation and first-time sign-in still require a network connection.
-- English/isiZulu language selection. Only onboarding is currently translated into isiZulu.
-- South African emergency dialler shortcuts. The app does not call automatically, send SMS automatically or send push notifications.
-
-## Publish the Firestore rules
-
-The database was created in production mode, which denies mobile client access until secure rules are published. From the project root, deploy the included rules and indexes using the Firebase CLI:
+The Android package is `za.co.safety4women`; Firebase project ID is `opsc-5af15`; Firestore is in `africa-south1`. Put your downloaded `google-services.json` at `app/google-services.json`. It is ignored by Git and must not be committed. Email/password and Firestore are set up in the Firebase project. The Firestore rules and indexes are in `firestore.rules` and `firestore.indexes.json`; deploy changes with:
 
 ```powershell
-npm install --global firebase-tools
 firebase login
 firebase --project opsc-5af15 deploy --only firestore:rules,firestore:indexes
 ```
 
-Alternatively, copy `firestore.rules` into the Firebase Console under **Firestore → Rules**, then publish. The Firebase CLI also deploys the composite indexes defined in `firestore.indexes.json`. Never replace these rules with open/test-mode rules.
+The project is intentionally staying on Firebase Spark. Firebase Cloud Storage uploads are not available on this plan, so the assignment's blob-storage learning outcome is not yet met. Do not enable billing without the account owner's decision. No app-side upload feature is claimed as working.
 
-## Open and run the Android app
+## API and push deployment
 
-1. Open this folder in Android Studio.
-2. Use JDK 21 and install Android SDK 36.
-3. Confirm `app/google-services.json` exists locally, then sync Gradle.
-4. Run the `app` configuration on an Android phone or emulator with Google Play services.
+The existing Express API uses PostgreSQL for its REST resources and requires private `DATABASE_URL`, `JWT_SECRET` (at least 32 bytes), and `PORT`. Apply `server/db/schema.sql` to that PostgreSQL database. To enable FCM delivery, also set private host variables `FIREBASE_PROJECT_ID=opsc-5af15` and `FIREBASE_SERVICE_ACCOUNT_JSON` (the complete service-account JSON). Do not put a service-account key in Android, GitHub source, screenshots, or this README. Use a host supporting HTTPS Node services and PostgreSQL. Health check: `GET /health` should return `{"status":"ok"}`.
 
-The Firebase configuration file contains project/app identifiers and is ignored by Git. For GitHub Actions, create an Actions secret named `GOOGLE_SERVICES_JSON` whose value is the full JSON file contents. Do not commit signing keys, service-account keys, or database credentials.
-
-The included `server/` folder is the REST/PostgreSQL backend from the earlier project version. The current Android app uses Firebase Auth/Firestore directly, so it does not need a hosted REST API URL to run. The API source and tests remain available separately.
-
-## Checks
-
-Run Android tests and a debug build locally:
+Set the public API root for Android builds with a Gradle property, for example:
 
 ```powershell
-./gradlew testDebugUnitTest assembleDebug
+.\gradlew.bat assembleDebug -PsafetyApiBaseUrl=https://YOUR-API-HOST
 ```
 
-Run the retained REST API tests from `server/`:
+The current Android app uses this REST endpoint for companion push requests; its account/profile/journey/incident data remains in Firestore. The PostgreSQL REST endpoints are available separately. A deployed host URL and service-account secret are required for end-to-end push delivery; source code alone cannot deliver notifications.
+
+## Build, test, and CI
+
+Requirements: JDK 21, Android SDK 36, and network access for Gradle/Maven dependencies. In Android Studio, sync Gradle, then run:
 
 ```powershell
-pnpm install --frozen-lockfile
-pnpm test
+.\gradlew.bat testDebugUnitTest assembleDebug
 ```
 
-GitHub Actions runs both checks. For Android CI, configure the `GOOGLE_SERVICES_JSON` repository secret first. A successful emulator/build check does not replace physical-phone testing.
+The repository's GitHub Actions workflow runs Android unit tests/debug assembly and the API tests on pushes and pull requests. It reads `GOOGLE_SERVICES_JSON` from a repository Actions secret. The secret must contain the exact JSON file contents; never paste service-account credentials there unless a workflow specifically needs them (this workflow only needs the Android Firebase config).
 
-## Remaining Part 3 work
+## Play Store preparation
 
-- Firebase Cloud Storage blob upload. Firebase now requires the Blaze pay-as-you-go plan for Storage; this project remains on Spark, so uploads are blocked until the account owner chooses a billing plan or the lecturer accepts a different blob-storage service.
-- FCM token registration, secure server-side notification delivery and notification handling.
-- Full isiZulu translation, account deletion/export and privacy/retention controls.
-- Test Firebase rules and all flows on a physical phone; run Android CI after dependencies can be downloaded.
-- Final app screenshots, store listing/privacy materials, signed Android App Bundle, Play Console evidence and the required narrated phone demonstration video.
+See [`store/PLAY_RELEASE_GUIDE.md`](store/PLAY_RELEASE_GUIDE.md) and [`store/PRIVACY_POLICY_DRAFT.md`](store/PRIVACY_POLICY_DRAFT.md). The Gradle release build reads signing values from these private environment variables: `SAFETY4WOMEN_KEYSTORE`, `SAFETY4WOMEN_KEYSTORE_PASSWORD`, `SAFETY4WOMEN_KEY_ALIAS`, and `SAFETY4WOMEN_KEY_PASSWORD`. Create and back up your upload key locally; never commit it or send it in chat. The guide includes draft store listing copy and a screenshot checklist. Add publisher identity, support contact, privacy-policy URL, verified data-retention details, screenshots, and signed AAB/APK evidence before submission.
 
-For safety, the app clearly describes local drafts and user-confirmed dialler actions; no emergency contact or companion receives an alert from a saved incident. Do not use an unverified build for real safety-critical use.
+A signed production artifact, Play Console upload, physical-device acceptance test, and narrated phone demonstration still require the account owner's local key, Play Console access, phone, and recording. The current privacy draft is not a published policy. The app does not yet implement Firebase Blob Storage, account deletion/export, or comprehensive retention controls.
 
-## Release notes — 1.0.0 Part 3 development build
+## Part 3 evidence checklist
 
-- Registered Android app `za.co.safety4women` with Firebase project `opsc-5af15`.
-- Added Firebase Authentication and Firestore for account and app data.
-- Added consent-scoped Firestore rules and indexes for user records and companion links.
-- Added Firestore-backed journeys, incidents, settings, contacts and companion consent flows with optimistic offline writes.
-- Retained the existing Express/PostgreSQL source and its CI tests, while removing the app's dependency on a separately hosted API.
-- Known release blockers are listed above; this is not a signed or Play Store-ready release.
+For the demonstration, use a physical Android phone; show registration/login and Google SSO, settings, invalid-input handling, offline write followed by reconnection/sync, a consented companion notification after the API is deployed, the hosted API health endpoint and PostgreSQL data, and both languages. Explain clearly that the app does not share live location or automatically place calls/SMS. Include professional narration and add the video link, screenshots, release notes, GitHub Actions result, and final `final PoE` tag to the submission evidence. Never use real sensitive contact details in screenshots.
 
-## AI assistance disclosure
+## Feedback and references
 
-Complete this section according to course policy. Identify any AI tools used and describe the specific coding, debugging or documentation work they assisted with. Do not claim unverified tests or features.
+Review the isiZulu safety wording with a fluent speaker. Firebase, Android Credential Manager, and FCM implementation details follow their official Android/Firebase documentation. Keep comments near security-sensitive rules and server-side token validation when extending the app.

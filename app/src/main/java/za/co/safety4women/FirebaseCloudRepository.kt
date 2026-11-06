@@ -2,6 +2,7 @@ package za.co.safety4women
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.UserProfileChangeRequest
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.Timestamp
@@ -63,6 +64,23 @@ class FirebaseCloudRepository(
         return Account(user.uid, snapshot.getString("displayName") ?: user.displayName.orEmpty(), user.email.orEmpty(), role)
     }
 
+    suspend fun signInWithGoogle(idToken: String, selectedRole: Role, language: String): Account {
+        val user = auth.signInWithCredential(GoogleAuthProvider.getCredential(idToken, null)).await().user
+            ?: error("Firebase did not return the signed-in account.")
+        val profileRef = userDoc(user.uid)
+        val profile = profileRef.get().await()
+        if (!profile.exists()) {
+            profileRef.set(mapOf(
+                "uid" to user.uid, "displayName" to (user.displayName ?: user.email.orEmpty().substringBefore('@')),
+                "email" to user.email.orEmpty().lowercase(), "role" to selectedRole.name,
+                "language" to language, "highContrast" to false, "createdAt" to FieldValue.serverTimestamp()
+            )).await()
+            return Account(user.uid, user.displayName.orEmpty(), user.email.orEmpty(), selectedRole)
+        }
+        val role = runCatching { Role.valueOf(profile.getString("role") ?: Role.PRIMARY.name) }.getOrDefault(Role.PRIMARY)
+        return Account(user.uid, profile.getString("displayName") ?: user.displayName.orEmpty(), user.email.orEmpty(), role)
+    }
+
     suspend fun settings(): SettingsDto {
         val data = userDoc().get().await()
         return SettingsDto(data.getString("language") ?: "en", data.getBoolean("highContrast") ?: false)
@@ -73,6 +91,16 @@ class FirebaseCloudRepository(
         language?.let { updates["language"] = it }
         highContrast?.let { updates["highContrast"] = it }
         userDoc().set(updates, com.google.firebase.firestore.SetOptions.merge()).await()
+    }
+
+    /** Device tokens are private to their signed-in owner and are never exposed to other app users. */
+    fun saveDeviceToken(token: String) {
+        val tokenId = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(token.toByteArray()).joinToString("") { "%02x".format(it) }
+        userDoc().collection("deviceTokens").document(tokenId).set(mapOf(
+            "token" to token, "updatedAt" to FieldValue.serverTimestamp(), "platform" to "android"
+        ), com.google.firebase.firestore.SetOptions.merge())
+            .addOnFailureListener { android.util.Log.w("Safety4Women", "Could not register FCM token (${it.javaClass.simpleName})") }
     }
 
     private fun contacts() = userDoc().collection("contacts")

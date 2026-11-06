@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); window.statusBarColor = android.graphics.Color.rgb(242, 250, 248); window.navigationBarColor = android.graphics.Color.rgb(242, 250, 248); window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR; setContent { MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF087E78), onPrimary = Color.White, secondary = Color(0xFF386B66), background = Color(0xFFF2FAF8), surface = Color.White, error = Color(0xFFB42318))) { SafetyApp() } } }
+
 }
 
 enum class Role { PRIMARY, COMPANION }
@@ -35,6 +36,7 @@ class SafetyViewModel : ViewModel() {
             runCatching { cloud.restoreSession() }.onSuccess { account ->
                 if (account != null) {
                     _state.value = _state.value.copy(screen = "home", accountName = account.displayName, firebaseUid = account.uid, role = account.role)
+                    registerPushToken()
                     loadAccountData(account.role)
                 }
             }
@@ -42,6 +44,7 @@ class SafetyViewModel : ViewModel() {
     }
 
     fun select(role: Role) { _state.value = _state.value.copy(role = role, screen = "auth") }
+    fun setNotice(message: String) { _state.value = _state.value.copy(notice = message) }
 
     fun authenticate(name: String, email: String, password: String, register: Boolean) {
         if (_state.value.busy) return
@@ -51,12 +54,34 @@ class SafetyViewModel : ViewModel() {
                 val languageChoice = _state.value.language
                 val account = if (register) cloud.register(name, email, password, _state.value.role ?: Role.PRIMARY) else cloud.signIn(email, password)
                 _state.value = _state.value.copy(screen = "home", accountName = account.displayName, firebaseUid = account.uid, role = account.role, busy = false, notice = "Signed in with Firebase. Firestore keeps your account data synced.")
+                registerPushToken()
                 if (register) cloud.saveSettings(language = languageChoice)
                 loadAccountData(account.role)
             } catch (error: Exception) {
                 _state.value = _state.value.copy(busy = false, notice = firebaseMessage(error))
             }
         }
+    }
+
+    fun authenticateGoogle(idToken: String) {
+        if (_state.value.busy) return
+        _state.value = _state.value.copy(busy = true, notice = null)
+        viewModelScope.launch {
+            try {
+                val account = cloud.signInWithGoogle(idToken, _state.value.role ?: Role.PRIMARY, _state.value.language)
+                _state.value = _state.value.copy(screen = "home", accountName = account.displayName, firebaseUid = account.uid, role = account.role, busy = false, notice = "Signed in with Google. Firebase keeps your account data synced.")
+                registerPushToken()
+                loadAccountData(account.role)
+            } catch (error: Exception) {
+                _state.value = _state.value.copy(busy = false, notice = firebaseMessage(error))
+            }
+        }
+    }
+
+    private fun registerPushToken() {
+        com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { cloud.saveDeviceToken(it) }
+            .addOnFailureListener { android.util.Log.w("Safety4Women", "FCM registration failed (${it.javaClass.simpleName})") }
     }
 
     private suspend fun loadAccountData(role: Role) {
@@ -136,7 +161,12 @@ class SafetyViewModel : ViewModel() {
         _state.value = _state.value.copy(latestIncidentId = id, notice = "${level.name.replace('_', ' ')} saved locally. Firebase will sync it when you reconnect; nobody was notified.", events = _state.value.events + "${level.name.replace('_', ' ')} · saved to Firebase")
         viewModelScope.launch {
             runCatching { cloud.createIncident(level, id) }
-                .onSuccess { _state.value = _state.value.copy(notice = "${level.name.replace('_', ' ')} record synced with Firebase. Nobody was notified.") }
+                .onSuccess {
+                    if (level == SafetyLevel.CHECK_IN || level == SafetyLevel.ALERT || level == SafetyLevel.SOS) {
+                        val sent = runCatching { SafetyNotificationApi.sendToConsentingCompanions(id, level) }.getOrDefault(false)
+                        _state.value = _state.value.copy(notice = if (sent) "${level.name.replace('_', ' ')} saved. A consenting companion was notified." else "${level.name.replace('_', ' ')} record synced with Firebase. No companion notification was sent; check-in and alert delivery requires the hosted API and their consent.")
+                    }
+                }
                 .onFailure { _state.value = _state.value.copy(notice = firebaseMessage(it)) }
         }
     }

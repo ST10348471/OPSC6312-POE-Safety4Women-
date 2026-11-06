@@ -53,6 +53,25 @@ describe("authenticated API", () => {
     expect(response.body.error).toBe("Malformed JSON request body");
   });
 
+  it("requires a verified Firebase session and validates companion push requests", async () => {
+    app = createApp({
+      pool,
+      jwtSecret: "test-secret-with-more-than-thirty-two-bytes-long",
+      firebasePush: {
+        verifyIdToken: async (value) => value === "firebase-test-id-token" ? { uid: "firebase-primary-uid" } : Promise.reject(new Error("invalid")),
+        sendCompanionAlert: async (uid, level, incidentId) => ({ notified: uid === "firebase-primary-uid" && level === "SOS" && incidentId === "a1aa93fe-350a-48c1-b257-124b26347719", sent: 1 }),
+      },
+    });
+    expect((await request(app).post("/v1/notifications/companion-alert").send({ incidentId: "a1aa93fe-350a-48c1-b257-124b26347719", level: "SOS" })).status).toBe(401);
+    const rejected = await request(app).post("/v1/notifications/companion-alert").set("Authorization", "Bearer invalid").send({ incidentId: "a1aa93fe-350a-48c1-b257-124b26347719", level: "SOS" });
+    expect(rejected.status).toBe(401);
+    const sent = await request(app).post("/v1/notifications/companion-alert").set("Authorization", "Bearer firebase-test-id-token").send({ incidentId: "a1aa93fe-350a-48c1-b257-124b26347719", level: "SOS" });
+    expect(sent.status).toBe(200);
+    expect(sent.body).toEqual({ notified: true, sent: 1 });
+    const invalid = await request(app).post("/v1/notifications/companion-alert").set("Authorization", "Bearer firebase-test-id-token").send({ incidentId: "nope", level: "SOS" });
+    expect(invalid.status).toBe(400);
+  });
+
   it("validates registration input and disallows caller-selected user IDs", async () => {
     expect((await request(app).post("/v1/auth/register").send({ name: "A", email: "nope", password: "short", role: "PRIMARY" })).status).toBe(400);
     const auth = await token();
